@@ -1,6 +1,6 @@
 import pytest
 
-from clip.simple_tokenizer import SimpleTokenizer
+from clip.simple_tokenizer import SimpleTokenizer  # type: ignore
 
 from clippie.scripts.convert_vocab_file import _codepoint_binary_decode
 from clippie.tokeniser import (
