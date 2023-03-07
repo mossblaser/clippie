@@ -11,6 +11,9 @@ from pathlib import Path
 
 import pickle
 
+import numpy as np
+from numpy.typing import NDArray
+
 import torch
 import torch.jit
 import torch.nn
@@ -27,6 +30,9 @@ Default value of eps used by torch.nn.LayerNorm (which is the value used by
 CLIP).
 """
 
+def to_np(tensor: torch.Tensor) -> NDArray:
+    return np.ascontiguousarray(tensor.detach().numpy()).astype(np.float32)
+
 
 def extract_residual_attention_block_weights(
     module: Any,  # torch.nn.Module
@@ -35,26 +41,26 @@ def extract_residual_attention_block_weights(
     dim = module.attn.in_proj_bias.shape[-1] // 3
 
     return ResidualAttentionBlockWeights(
-        pre_attention_layer_norm_weights=module.ln_1.weight.detach().numpy(),
-        pre_attention_layer_norm_biases=module.ln_1.bias.detach().numpy(),
+        pre_attention_layer_norm_weights=to_np(module.ln_1.weight),
+        pre_attention_layer_norm_biases=to_np(module.ln_1.bias),
         pre_attention_layer_norm_eps=TORCH_LAYER_NORM_EPS_DEFAULT,
         n_heads=dim // 64,  # As per CLIP
         # NB: Transposed due to torch linear layers operating on transposed
         # weight matrices.
-        qkv_proj_weights=module.attn.in_proj_weight.T.detach().numpy(),
-        qkv_proj_biases=module.attn.in_proj_bias.detach().numpy(),
+        qkv_proj_weights=to_np(module.attn.in_proj_weight.T),
+        qkv_proj_biases=to_np(module.attn.in_proj_bias),
         # NB: Transposes again
-        multi_head_output_proj_weights=module.attn.out_proj.weight.T.detach().numpy(),
-        multi_head_output_proj_biases=module.attn.out_proj.bias.detach().numpy(),
+        multi_head_output_proj_weights=to_np(module.attn.out_proj.weight.T),
+        multi_head_output_proj_biases=to_np(module.attn.out_proj.bias),
         attention_mask=attention_mask,
-        pre_mpl_layer_norm_weights=module.ln_2.weight.detach().numpy(),
-        pre_mpl_layer_norm_biases=module.ln_2.bias.detach().numpy(),
+        pre_mpl_layer_norm_weights=to_np(module.ln_2.weight),
+        pre_mpl_layer_norm_biases=to_np(module.ln_2.bias),
         pre_mpl_layer_norm_eps=TORCH_LAYER_NORM_EPS_DEFAULT,
         # NB: Transposes again
-        mlp_input_weights=module.mlp.c_fc.weight.T.detach().numpy(),
-        mlp_input_biases=module.mlp.c_fc.bias.detach().numpy(),
-        mlp_output_weights=module.mlp.c_proj.weight.T.detach().numpy(),
-        mlp_output_biases=module.mlp.c_proj.bias.detach().numpy(),
+        mlp_input_weights=to_np(module.mlp.c_fc.weight.T),
+        mlp_input_biases=to_np(module.mlp.c_fc.bias),
+        mlp_output_weights=to_np(module.mlp.c_proj.weight.T),
+        mlp_output_biases=to_np(module.mlp.c_proj.bias),
     )
 
 
@@ -63,8 +69,8 @@ def extract_weights(
 ) -> Weights:
     return Weights(
         text_encoder=TextEncoderWeights(
-            token_embedding_lut=model.token_embedding.weight.detach().numpy(),
-            positional_encoding=model.positional_embedding.detach().numpy(),
+            token_embedding_lut=to_np(model.token_embedding.weight),
+            positional_encoding=to_np(model.positional_embedding),
             transformer=[
                 extract_residual_attention_block_weights(block, attention_mask=True)
                 for _n, block in sorted(
@@ -72,10 +78,10 @@ def extract_weights(
                     for n, block in model.transformer.resblocks.named_children()
                 )
             ],
-            transformer_output_norm_weights=model.ln_final.weight.detach().numpy(),
-            transformer_output_norm_biases=model.ln_final.bias.detach().numpy(),
+            transformer_output_norm_weights=to_np(model.ln_final.weight),
+            transformer_output_norm_biases=to_np(model.ln_final.bias),
             transformer_output_norm_eps=TORCH_LAYER_NORM_EPS_DEFAULT,
-            output_projection_weights=model.text_projection.detach().numpy(),
+            output_projection_weights=to_np(model.text_projection),
         ),
     )
 
