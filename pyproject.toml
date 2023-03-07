@@ -15,3 +15,6 @@ clippie-convert-vocab-file = "clippie.scripts.convert_vocab_file:main"
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.mypy]
+plugins = "numpy.typing.mypy_plugin"

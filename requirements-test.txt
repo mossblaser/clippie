@@ -1,4 +1,5 @@
 pytest
 mypy
+numpy-typing
 types-regex
 git+https://github.com/openai/CLIP@a9b1bf5#clip
