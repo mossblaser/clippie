@@ -21,7 +21,9 @@ import torch.nn
 from clippie.model import (
     Weights,
     TextEncoderWeights,
+    ImageEncoderWeights,
     ResidualAttentionBlockWeights,
+    LayerNormalisationWeights,
 )
 
 TORCH_LAYER_NORM_EPS_DEFAULT = 1e-05
@@ -41,9 +43,11 @@ def extract_residual_attention_block_weights(
     dim = module.attn.in_proj_bias.shape[-1] // 3
 
     return ResidualAttentionBlockWeights(
-        pre_attention_layer_norm_weights=to_np(module.ln_1.weight),
-        pre_attention_layer_norm_biases=to_np(module.ln_1.bias),
-        pre_attention_layer_norm_eps=TORCH_LAYER_NORM_EPS_DEFAULT,
+        pre_attention_layer_norm=LayerNormalisationWeights(
+            weights=to_np(module.ln_1.weight),
+            biases=to_np(module.ln_1.bias),
+            eps=TORCH_LAYER_NORM_EPS_DEFAULT,
+        ),
         n_heads=dim // 64,  # As per CLIP
         # NB: Transposed due to torch linear layers operating on transposed
         # weight matrices.
@@ -53,15 +57,30 @@ def extract_residual_attention_block_weights(
         multi_head_output_proj_weights=to_np(module.attn.out_proj.weight.T),
         multi_head_output_proj_biases=to_np(module.attn.out_proj.bias),
         attention_mask=attention_mask,
-        pre_mpl_layer_norm_weights=to_np(module.ln_2.weight),
-        pre_mpl_layer_norm_biases=to_np(module.ln_2.bias),
-        pre_mpl_layer_norm_eps=TORCH_LAYER_NORM_EPS_DEFAULT,
+        pre_mpl_layer_norm=LayerNormalisationWeights(
+            weights=to_np(module.ln_2.weight),
+            biases=to_np(module.ln_2.bias),
+            eps=TORCH_LAYER_NORM_EPS_DEFAULT,
+        ),
         # NB: Transposes again
         mlp_input_weights=to_np(module.mlp.c_fc.weight.T),
         mlp_input_biases=to_np(module.mlp.c_fc.bias),
         mlp_output_weights=to_np(module.mlp.c_proj.weight.T),
         mlp_output_biases=to_np(module.mlp.c_proj.bias),
     )
+
+
+def extract_transformer_weights(
+    transformer: Any,  # nn.Module (specifically clip.model.Transformer)
+    attention_mask: bool,
+) -> list[ResidualAttentionBlockWeights]:
+    return [
+        extract_residual_attention_block_weights(block, attention_mask=attention_mask)
+        for _n, block in sorted(
+            (int(n), block)
+            for n, block in transformer.resblocks.named_children()
+        )
+    ]
 
 
 def extract_weights(
@@ -71,16 +90,12 @@ def extract_weights(
         text_encoder=TextEncoderWeights(
             token_embedding_lut=to_np(model.token_embedding.weight),
             positional_encoding=to_np(model.positional_embedding),
-            transformer=[
-                extract_residual_attention_block_weights(block, attention_mask=True)
-                for _n, block in sorted(
-                    (int(n), block)
-                    for n, block in model.transformer.resblocks.named_children()
-                )
-            ],
-            transformer_output_norm_weights=to_np(model.ln_final.weight),
-            transformer_output_norm_biases=to_np(model.ln_final.bias),
-            transformer_output_norm_eps=TORCH_LAYER_NORM_EPS_DEFAULT,
+            transformer=extract_transformer_weights(model.transformer, attention_mask=True),
+            transformer_output_norm=LayerNormalisationWeights(
+                weights=to_np(model.ln_final.weight),
+                biases=to_np(model.ln_final.bias),
+                eps=TORCH_LAYER_NORM_EPS_DEFAULT,
+            ),
             output_projection_weights=to_np(model.text_projection),
         ),
     )

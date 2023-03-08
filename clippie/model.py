@@ -19,16 +19,21 @@ from clippie.nn import (
 )
 
 
+class LayerNormalisationWeights(NamedTuple):
+    """Weights for a ptyhonlayer_normalisation."""
+    weights: NDArray
+    biases: NDArray
+    eps: float
+
+
 class ResidualAttentionBlockWeights(NamedTuple):
     """
     The weights for a single residual attention block within a transformer.
     """
 
-    pre_attention_layer_norm_weights: NDArray  # (dim)
-    pre_attention_layer_norm_biases: NDArray  # (dim)
-    pre_attention_layer_norm_eps: float
+    pre_attention_layer_norm: LayerNormalisationWeights  # (dim)
     """
-    Weights, biases and epsilon values for the inputs to the attention block.
+    Layer normlisation for inputs to the attention block.
     """
 
     n_heads: int
@@ -51,12 +56,9 @@ class ResidualAttentionBlockWeights(NamedTuple):
     attention_mask: bool
     """Should an causal attention mask be applied?"""
 
-    pre_mpl_layer_norm_weights: NDArray  # (dim)
-    pre_mpl_layer_norm_biases: NDArray  # (dim)
-    pre_mpl_layer_norm_eps: float
+    pre_mpl_layer_norm: LayerNormalisationWeights  # (dim)
     """
-    Weights, biases and epsilon values for the inputs to the multi-layer
-    perceptron.
+    Layer normalisation values for the inputs to the multi-layer perceptron.
     """
 
     mlp_input_weights: NDArray  # (dim, mlp_hidden_dim)
@@ -81,9 +83,7 @@ class TextEncoderWeights(NamedTuple):
 
     transformer: list[ResidualAttentionBlockWeights]
 
-    transformer_output_norm_weights: NDArray  # (dim)
-    transformer_output_norm_biases: NDArray  # (dim)
-    transformer_output_norm_eps: float
+    transformer_output_norm: LayerNormalisationWeights  # (dim)
     """
     Layer norm applied to the final output of the transformer.
     """
@@ -137,12 +137,7 @@ def transformer(
 
         # Multi-headed self attention (+ residual pass through)
         x += multi_head_attention(
-            layer_normalisation(
-                x,
-                weights=weights.pre_attention_layer_norm_weights,
-                biases=weights.pre_attention_layer_norm_biases,
-                eps=weights.pre_attention_layer_norm_eps,
-            ),
+            layer_normalisation(x, *weights.pre_attention_layer_norm),
             n_heads=weights.n_heads,
             qkv_proj_weights=weights.qkv_proj_weights,
             qkv_proj_biases=weights.qkv_proj_biases,
@@ -153,12 +148,7 @@ def transformer(
 
         # Multi-layer perceptron (+ residual pass through)
         x += mlp(
-            layer_normalisation(
-                x,
-                weights=weights.pre_mpl_layer_norm_weights,
-                biases=weights.pre_mpl_layer_norm_biases,
-                eps=weights.pre_mpl_layer_norm_eps,
-            ),
+            layer_normalisation(x, *weights.pre_mpl_layer_norm),
             input_weights=weights.mlp_input_weights,
             input_biases=weights.mlp_input_biases,
             output_weights=weights.mlp_output_weights,
@@ -212,12 +202,7 @@ def encode_text(
     out = transformer(tokens_embedded, weights.transformer)
 
     # Final layer normalisation
-    out = layer_normalisation(
-        out,
-        weights=weights.transformer_output_norm_weights,
-        biases=weights.transformer_output_norm_biases,
-        eps=weights.transformer_output_norm_eps,
-    )
+    out = layer_normalisation(out, *weights.transformer_output_norm)
 
     # Extract the output corresponding to the END_OF_TEXT_TOKEN as the final
     # embedding for each input. This is sligtly convoluted due to the need to
