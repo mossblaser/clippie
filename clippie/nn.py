@@ -137,19 +137,16 @@ def sigmoid(x: NDArray) -> NDArray:
     # In this second variation, negative values wont overflow -- though now positive values will! As
     # such, for a stable implementation we must choose the formulation according to the value of x
     # at hand.
-    pos_mask = x > 0
-    neg_mask = ~pos_mask
-
-    # 1 in x-is-positive case, e^x in x-is-negative case
-    tops_of_fractions = np.ones_like(x)
-    tops_of_fractions[neg_mask] = np.exp(x[neg_mask])
-
-    # e^x + 1 in x-is-negative case, e^-x + 1 in x-is-positive case.
-    bottoms_of_fractions = tops_of_fractions.copy()
-    bottoms_of_fractions[pos_mask] += np.exp(-x[pos_mask])
-    bottoms_of_fractions[neg_mask] += 1.0
-
-    return tops_of_fractions / bottoms_of_fractions
+    return np.piecewise(
+        x,
+        [x > 0],
+        [
+            # x > 0 case
+            lambda x: 1.0 / (1.0 + np.exp(-x)),
+            # x <= 0 case (NB slight contortion to compute np.exp(x) just once)
+            lambda x: (lambda exp_x: exp_x / (exp_x + 1))(np.exp(x)),
+        ]
+    )
 
 
 def approximate_gelu(x) -> NDArray:
