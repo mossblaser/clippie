@@ -10,6 +10,8 @@ import numpy as np
 
 from numpy.typing import ArrayLike, NDArray, DTypeLike
 
+from clippie.util import split_axis
+
 
 T = TypeVar("T", bound=np.number)
 
@@ -374,3 +376,117 @@ def multi_head_attention(
     #      e +-------------+
     #         dim
     return (results @ output_proj_weights) + output_proj_biases  # (..., time, dim)
+
+
+def vit_convolve(im: NDArray, weights: NDArray) -> NDArray:
+    """
+    Perform the 'convolution' step of a Vision Transformer (ViT).
+
+    .. note::
+
+        This is not a convolution in the usual sense where a kernel is applied
+        stepwise to all positions. Rather, a kernel is applied to only distinct
+        (and disjoint) 'patches' -- see below.
+
+    Based on "An Image is Worth 16x16 Words: Transformers for Image Recognition
+    at Scale.", Dosovitskiy et al., 2021.
+
+    The input image begins life as three red, green and blue images::
+
+            B+----------+
+          G+----------+ |
+        R+----------+ | |
+         |          | | |
+         |          | |-+
+         |          |-+
+         +----------+
+
+    These are then partitioned into patches of some size (e.g. 32x32 pixels)::
+
+            B+----+----+----+
+          G+----+----+----+ |
+        R+----+----+----+ |-+
+         |    |    |    |-+ |
+         +----+----+----+ |-+
+         |    |    |    |-+ |
+         +----+----+----+ |-+
+         |    |    |    |-+
+         +----+----+----+
+
+    For each patch, the 'weights' matrix then gives N weightings for a weighted
+    sum of all pixel component values (cross-correlation). This produces an
+    N-dimensional vector for each of the input patches, which is returned by
+    this function.
+
+    Parameters
+    ==========
+    im : array (..., h, w, 3)
+        One or more RGB images.
+    weights : array (dim, patch_h, patch_w, 3)
+        The weights to use to perform cross-correlation on the patches of the
+        image. The patch_h and patch_w dimension sizes must exactly divide the
+        input image size.
+
+    Returns
+    =======
+    array (..., patch, dim)
+        Gives the vector computed for each image patch (in raster-scan order in
+        the 'patch' dimension) for each input image.
+    """
+
+    # Determine patch sizes/counts
+    patch_h = weights.shape[1]
+    patch_w = weights.shape[2]
+
+    if im.shape[-3] % patch_h != 0:
+        raise ValueError(
+            f"Image height ({im.shape[-3]}) not divisble by patch height ({patch_h})."
+        )
+    if im.shape[-2] % patch_w != 0:
+        raise ValueError(
+            f"Image width ({im.shape[-2]}) not divisble by patch width ({patch_w})."
+        )
+
+    num_patches_h = im.shape[-3] // patch_h
+    num_patches_w = im.shape[-2] // patch_w
+
+    # Split input image into patches
+    # (num_patches_h, num_patches_w, ..., patch_h, patch_w, 3)
+    im = split_axis(split_axis(im, -2, num_patches_w), -3, num_patches_h)
+
+    # Add empty dimensions to the weights array such that broadcasting works
+    # out as shown below:
+    #
+    #            (num_patches_h, num_patches_w, ..., patch_h, patch_w, 3)  # im
+    #     * (dim,             1,             1, ..., patch_h, patch_w, 3)  # weights
+    #             \_______________________________/
+    #                   Newly inserted dimensions
+    #
+    # Note that the the 'im' array will also end up being broadcast too to
+    # match the 'dim' (0th) dimension of the weights array.
+    weights = np.expand_dims(
+        weights,
+        axis=tuple(
+            range(
+                1,  # Add dimensions following the dim
+                (im.ndim - 5)  # To account for extra batch dimensions in im
+                + 2  # Plus the patch dimensions
+                + 1,  # Offset since started from 1
+            )
+        ),
+    )
+
+    # Perform the weighted sum, broadcasting as illustrated above
+    im = im * weights  # (dim, ..., num_patches_h, num_patches_w, patch_h, patch_w, 3)
+    im = np.sum(im, axis=(-3, -2, -1))  # (dim, ..., num_patches_h, num_patches_w)
+
+    # Combine patch axes into one
+    im = np.moveaxis(im, (1, 2), (-2, -1))  # (dim, ..., num_patches_h, num_patches_w)
+    im = im.reshape(
+        im.shape[:-2] + (num_patches_h * num_patches_w,)
+    )  # (dim, ..., patch)
+
+    # Move 'dim' axis into last position, as expected for transformer
+    im = np.moveaxis(im, 0, -1)  # (..., patch, dim)
+
+    return im

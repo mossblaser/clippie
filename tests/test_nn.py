@@ -8,8 +8,9 @@ from clippie.nn import (
     layer_normalisation,
     make_attention_mask,
     softmax,
-    multi_head_attention,
     sigmoid,
+    multi_head_attention,
+    vit_convolve,
 )
 
 import torch
@@ -155,3 +156,40 @@ def test_multi_head_attention(batch_dims: tuple[int]) -> None:
     print(actual[~close])
 
     assert np.all(close)
+
+
+def test_vit_convolve() -> None:
+    np.random.seed(0)
+
+    batch_size = 2
+    dim = 20
+    patch_size = 16
+    patch_dim = 4
+    im_size = patch_size * patch_dim
+
+    torch_conv = torch.nn.Conv2d(
+        in_channels=3,
+        out_channels=dim,
+        kernel_size=patch_size,
+        stride=patch_size,
+        bias=False,
+    )
+
+    # Extract the weights used
+    weights = torch_conv.weight.detach().numpy()  # (dim, 3, h, w)
+    weights = np.moveaxis(weights, 1, -1)  # (dim, h, w, 3)
+
+    im = np.random.normal(size=(batch_size, im_size, im_size, 3)).astype(np.float32)
+
+    # Compute answer using function under test
+    actual = vit_convolve(im, weights)
+
+    # Compute model answer using PyTorch, as used in CLIP
+    im_tensor = torch.tensor(
+        np.ascontiguousarray(np.moveaxis(im, -1, 1))
+    )  # NB: (batch, 3, h, w)
+    exp = torch_conv(im_tensor).detach().numpy()  # (batch, dim, ph, pw)
+    exp = exp.reshape(batch_size, dim, patch_dim**2)  # (batch, dim, ph*pw)
+    exp = np.moveaxis(exp, -2, -1)  # (batch, ph*pw, dim)
+
+    assert np.allclose(actual, exp, atol=1e-5)

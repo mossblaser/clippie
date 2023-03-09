@@ -8,7 +8,11 @@ from numpy.typing import NDArray
 
 import numpy as np
 
+from PIL import Image
+
 from clippie import tokeniser
+
+from clippie.image import centre_crop_and_resize, image_to_scaled_array
 
 from clippie.nn import (
     embedding,
@@ -16,11 +20,13 @@ from clippie.nn import (
     make_attention_mask,
     multi_head_attention,
     approximate_gelu,
+    vit_convolve,
 )
 
 
 class LayerNormalisationWeights(NamedTuple):
     """Weights for a ptyhonlayer_normalisation."""
+
     weights: NDArray
     biases: NDArray
     eps: float
@@ -95,8 +101,36 @@ class TextEncoderWeights(NamedTuple):
     """
 
 
+class ImageEncoderWeights(NamedTuple):
+    """Weights used by the image encoder (a Vision Transformer (ViT))."""
+
+    convolution_weights: NDArray  # (dim, patch_h, patch_w, 3)
+    """Weights for the initial convolution in the vision transformer."""
+
+    class_value: NDArray  # (dim)
+    """
+    The (static) value representing the 'class' input to the vision
+    transformer.
+    """
+
+    positional_encoding: NDArray  # (patches+1, dim)
+    """Positional embedding to offset each vision transformer input with."""
+
+    pre_transformer_layer_norm: LayerNormalisationWeights  # (dim)
+    """Layer norm prior to transformer."""
+
+    transformer: list[ResidualAttentionBlockWeights]
+
+    post_transformer_layer_norm: LayerNormalisationWeights  # (dim)
+    """Layer norm following the transformer."""
+
+    output_projection_weights: NDArray  # (dim, output_dim)
+    """Final projection from transformer dimension to output dimension."""
+
+
 class Weights(NamedTuple):
     text_encoder: TextEncoderWeights
+    image_encoder: ImageEncoderWeights
 
 
 class TooManyTokensError(ValueError):
@@ -158,13 +192,11 @@ def transformer(
     return x
 
 
-def encode_text(
-    texts: str | list[str], weights: TextEncoderWeights
-) -> NDArray | list[NDArray]:
+def encode_text(texts: str | list[str], weights: TextEncoderWeights) -> NDArray:
     """
     Encode text into the CLIP shared image/text embedding space.
 
-    If a list of strings is given, a (string, dim) array is returned giving the
+    If a list of strings is given, a (len(texts), dim) array is returned giving the
     encoding of each string in turn. Otherwise a single-dimensional vector is
     returned.
     """
@@ -210,6 +242,106 @@ def encode_text(
     out = out[tuple(zip(*np.ndindex(out.shape[:-2]))) + np.s_[sequence_lengths - 1, :]]  # type: ignore
 
     # Apply final output projection
+    out = out @ weights.output_projection_weights
+
+    if batched:
+        return out
+    else:
+        return out[0]
+
+
+def get_input_image_dimensions(weights: ImageEncoderWeights) -> int:
+    """
+    Returns the required dimensions for (square) input images, in pixels, to
+    the image encoder.
+    """
+    num_patches_plus_one, _ = weights.positional_encoding.shape
+    num_patches = num_patches_plus_one - 1
+
+    # NB: assume patch grid has same number of rows as cols
+    patch_grid = int(num_patches**0.5)
+    assert patch_grid * patch_grid == num_patches
+
+    _, patch_h, patch_w, _ = weights.convolution_weights.shape
+
+    image_h = patch_h * patch_grid
+    image_w = patch_w * patch_grid
+
+    assert image_h == image_w
+
+    return image_h
+
+
+def encode_image(
+    images: Image.Image | list[Image.Image], weights: ImageEncoderWeights
+) -> NDArray | list[NDArray]:
+    """
+    Encode na image into the CLIP shared image/text embedding space.
+
+    If a list of images is given, a (len(images), dim) array is returned giving the
+    encoding of each string in turn. Otherwise a single-dimensional vector is
+    returned.
+    """
+    batched = True
+    if isinstance(images, Image.Image):
+        batched = False
+        images = [images]
+
+    # Load, resize and centre crop all images.
+    #
+    # (batch, image_dimensions, image_dimensions, 3)
+    image_dimensions = get_input_image_dimensions(weights)
+    image_arrays = np.stack(
+        [
+            image_to_scaled_array(centre_crop_and_resize(image, image_dimensions))
+            for image in images
+        ]
+    )
+
+    # Divide the images into patches and compute "feature" vectors from these
+    #
+    # (batch, patch, dim)
+    image_embedded = vit_convolve(
+        image_arrays.astype(weights.convolution_weights.dtype),
+        weights.convolution_weights,
+    )
+
+    # Add fixed 'class' value to the set of patches
+    #
+    # (batch, patch+1, dim)
+    transformer_input = np.empty(
+        (
+            image_embedded.shape[:-2]
+            + (image_embedded.shape[-2] + 1, image_embedded.shape[-1])
+        ),
+        dtype=image_embedded.dtype,
+    )
+    transformer_input[..., 0, :] = weights.class_value
+    transformer_input[..., 1:, :] = image_embedded
+
+    # Add positional encoding
+    transformer_input += weights.positional_encoding
+
+    # Pre-transformer layer normalisation
+    transformer_input = layer_normalisation(
+        transformer_input, *weights.pre_transformer_layer_norm
+    )
+
+    # Transformer
+    transformer_output = transformer(transformer_input, weights.transformer)
+
+    # Extract the output value corresponding to the 'class' input.
+    #
+    # (batch, dim)
+    out = transformer_output[..., 0, :]
+
+    # Post-transformer layer normalisation
+    out = layer_normalisation(out, *weights.post_transformer_layer_norm)
+
+    # Finally, project to the final output space (typically a dimensional
+    # reduction)
+    #
+    # (batch, output_dim)
     out = out @ weights.output_projection_weights
 
     if batched:

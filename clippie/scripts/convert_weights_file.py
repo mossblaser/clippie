@@ -32,8 +32,30 @@ Default value of eps used by torch.nn.LayerNorm (which is the value used by
 CLIP).
 """
 
+
 def to_np(tensor: torch.Tensor) -> NDArray:
+    """
+    Convert from PyTorch tensor to NDArray.
+
+    In the process we also:
+
+    * Convert to float32 -- whilst float16 (used for some parts of the model)
+      takes up less space, float16 performance is typically poor on x86
+      architectures (where there is no float16 SIMD support).
+    * Force contiguous memory layout -- some tensors may have been transposed
+      and this keeps things simple.
+    """
     return np.ascontiguousarray(tensor.detach().numpy()).astype(np.float32)
+
+
+def extract_layer_norm_weights(
+    model: Any,  # torch.nn.LayerNorm
+) -> LayerNormalisationWeights:
+    return LayerNormalisationWeights(
+        weights=to_np(model.weight),
+        biases=to_np(model.bias),
+        eps=TORCH_LAYER_NORM_EPS_DEFAULT,
+    )
 
 
 def extract_residual_attention_block_weights(
@@ -43,11 +65,7 @@ def extract_residual_attention_block_weights(
     dim = module.attn.in_proj_bias.shape[-1] // 3
 
     return ResidualAttentionBlockWeights(
-        pre_attention_layer_norm=LayerNormalisationWeights(
-            weights=to_np(module.ln_1.weight),
-            biases=to_np(module.ln_1.bias),
-            eps=TORCH_LAYER_NORM_EPS_DEFAULT,
-        ),
+        pre_attention_layer_norm=extract_layer_norm_weights(module.ln_1),
         n_heads=dim // 64,  # As per CLIP
         # NB: Transposed due to torch linear layers operating on transposed
         # weight matrices.
@@ -57,11 +75,7 @@ def extract_residual_attention_block_weights(
         multi_head_output_proj_weights=to_np(module.attn.out_proj.weight.T),
         multi_head_output_proj_biases=to_np(module.attn.out_proj.bias),
         attention_mask=attention_mask,
-        pre_mpl_layer_norm=LayerNormalisationWeights(
-            weights=to_np(module.ln_2.weight),
-            biases=to_np(module.ln_2.bias),
-            eps=TORCH_LAYER_NORM_EPS_DEFAULT,
-        ),
+        pre_mpl_layer_norm=extract_layer_norm_weights(module.ln_2),
         # NB: Transposes again
         mlp_input_weights=to_np(module.mlp.c_fc.weight.T),
         mlp_input_biases=to_np(module.mlp.c_fc.bias),
@@ -77,8 +91,7 @@ def extract_transformer_weights(
     return [
         extract_residual_attention_block_weights(block, attention_mask=attention_mask)
         for _n, block in sorted(
-            (int(n), block)
-            for n, block in transformer.resblocks.named_children()
+            (int(n), block) for n, block in transformer.resblocks.named_children()
         )
     ]
 
@@ -90,13 +103,27 @@ def extract_weights(
         text_encoder=TextEncoderWeights(
             token_embedding_lut=to_np(model.token_embedding.weight),
             positional_encoding=to_np(model.positional_embedding),
-            transformer=extract_transformer_weights(model.transformer, attention_mask=True),
-            transformer_output_norm=LayerNormalisationWeights(
-                weights=to_np(model.ln_final.weight),
-                biases=to_np(model.ln_final.bias),
-                eps=TORCH_LAYER_NORM_EPS_DEFAULT,
+            transformer=extract_transformer_weights(
+                model.transformer, attention_mask=True
             ),
+            transformer_output_norm=extract_layer_norm_weights(model.ln_final),
             output_projection_weights=to_np(model.text_projection),
+        ),
+        image_encoder=ImageEncoderWeights(
+            convolution_weights=to_np(
+                # (dim, 3, h, w) --> (dim, h, w, 3)
+                torch.moveaxis(model.visual.conv1.weight, 1, -1)
+            ),
+            class_value=to_np(model.visual.class_embedding.data),
+            positional_encoding=to_np(model.visual.positional_embedding.data),
+            pre_transformer_layer_norm=extract_layer_norm_weights(model.visual.ln_pre),
+            transformer=extract_transformer_weights(
+                model.visual.transformer, attention_mask=False
+            ),
+            post_transformer_layer_norm=extract_layer_norm_weights(
+                model.visual.ln_post
+            ),
+            output_projection_weights=to_np(model.visual.proj.data),
         ),
     )
 
