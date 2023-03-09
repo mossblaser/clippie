@@ -454,39 +454,37 @@ def vit_convolve(im: NDArray, weights: NDArray) -> NDArray:
     # (num_patches_h, num_patches_w, ..., patch_h, patch_w, 3)
     im = split_axis(split_axis(im, -2, num_patches_w), -3, num_patches_h)
 
-    # Add empty dimensions to the weights array such that broadcasting works
-    # out as shown below:
+    # Turn each patch into a row matrix
     #
-    #            (num_patches_h, num_patches_w, ..., patch_h, patch_w, 3)  # im
-    #     * (dim,             1,             1, ..., patch_h, patch_w, 3)  # weights
-    #             \_______________________________/
-    #                   Newly inserted dimensions
-    #
-    # Note that the the 'im' array will also end up being broadcast too to
-    # match the 'dim' (0th) dimension of the weights array.
-    weights = np.expand_dims(
-        weights,
-        axis=tuple(
-            range(
-                1,  # Add dimensions following the dim
-                (im.ndim - 5)  # To account for extra batch dimensions in im
-                + 2  # Plus the patch dimensions
-                + 1,  # Offset since started from 1
-            )
-        ),
-    )
+    # (num_patches_h, num_patches_w, ..., 1, pixel_index)
+    #                                     \____________/
+    #                                       row vector
+    im = im.reshape(im.shape[:-3] + (1, patch_h * patch_w * 3))
 
-    # Perform the weighted sum, broadcasting as illustrated above
-    im = im * weights  # (dim, ..., num_patches_h, num_patches_w, patch_h, patch_w, 3)
-    im = np.sum(im, axis=(-3, -2, -1))  # (dim, ..., num_patches_h, num_patches_w)
+    # Turn weights into matrix
+    #
+    # (pixel_index, dim)
+    weights = weights.reshape(weights.shape[0], patch_h * patch_w * 3).T
+
+    # Apply weights, performing a batched matrix multiply like so:
+    #
+    #   (num_patches_h, num_patches_w, ...,           1, pixel_index)
+    # @                                    (pixel_index,         dim)
+    # = (num_patches_h, num_patches_w, ..., 1, dim)
+    im = im @ weights
+
+    # Remove redundant axis
+    #
+    # (num_patches_h, num_patches_w, ..., dim)
+    im = np.squeeze(im, axis=-2)
 
     # Combine patch axes into one
-    im = np.moveaxis(im, (1, 2), (-2, -1))  # (dim, ..., num_patches_h, num_patches_w)
+    im = np.moveaxis(im, (0, 1), (-2, -1))  # (..., dim, num_patches_h, num_patches_w)
     im = im.reshape(
         im.shape[:-2] + (num_patches_h * num_patches_w,)
-    )  # (dim, ..., patch)
+    )  # (..., dim, patch)
 
     # Move 'dim' axis into last position, as expected for transformer
-    im = np.moveaxis(im, 0, -1)  # (..., patch, dim)
+    im = np.moveaxis(im, -2, -1)  # (..., patch, dim)
 
     return im
