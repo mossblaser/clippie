@@ -145,7 +145,7 @@ def sigmoid(x: NDArray) -> NDArray:
             lambda x: 1.0 / (1.0 + np.exp(-x)),
             # x <= 0 case (NB slight contortion to compute np.exp(x) just once)
             lambda x: (lambda exp_x: exp_x / (exp_x + 1))(np.exp(x)),
-        ]
+        ],
     )
 
 
