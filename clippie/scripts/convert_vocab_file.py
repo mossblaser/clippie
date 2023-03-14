@@ -8,7 +8,10 @@ ordering and writes it to a file for use by clippie.
 
 The format used by clippie is a Python pickle file containing a value of type:
 
-    tuple[list[bytes], list[tuple[bytes, bytes]]]
+    tuple[
+        list[bytes],                # Vocabulary
+        list[tuple[bytes, bytes]],  # Byte pair encoding merges
+    ]
 
 The first list contains the vocabulary, the second contains the byte pair
 encoding merges in order of descending order of application priority.
