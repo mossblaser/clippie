@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 clippie-convert-vocab-file = "clippie.scripts.convert_vocab_file:main"
+clippie-convert-weights-file = "clippie.scripts.convert_weights_file:main"
 
 [tool.setuptools]
 include-package-data = true
