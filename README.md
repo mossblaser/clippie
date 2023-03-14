@@ -171,3 +171,18 @@ Whilst various fancy [libraries](https://github.com/facebookresearch/faiss) and
 nearest neighbour search for vast collections of vectors, they simply aren't
 needed for my purposes. Numpy can brute-force search 100k vectors in about 50ms
 on my laptop.
+
+
+**Does this reuse any code from the CLIP reference implementation?**
+
+This software is an independent reimplementation of CLIP and does not reuse, or
+derive from its code. Where necessary it Clippie does deliberately makes the
+same arbitrary design choices to ensure compatibility of weights.
+
+Data files, including both model weights (not in this repository) and the
+tokenizer vocabulary (included in this repository), are used directly from CLIP
+by necessity. The vocabulary data is assumed to be [MIT licensed along with the
+rest of the CLIP source
+code](https://github.com/openai/CLIP/blob/main/LICENSE). The [license of the
+model weights are unclear](https://github.com/openai/CLIP/issues/203) and they
+are not redistributed here.
