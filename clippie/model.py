@@ -276,7 +276,7 @@ def encode_image(
     images: Image.Image | list[Image.Image], weights: ImageEncoderWeights
 ) -> NDArray | list[NDArray]:
     """
-    Encode na image into the CLIP shared image/text embedding space.
+    Encode an image into the CLIP shared image/text embedding space.
 
     If a list of images is given, a (len(images), dim) array is returned giving the
     encoding of each string in turn. Otherwise a single-dimensional vector is
