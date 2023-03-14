@@ -9,8 +9,6 @@ from argparse import ArgumentParser, FileType
 
 from pathlib import Path
 
-import pickle
-
 import numpy as np
 from numpy.typing import NDArray
 
@@ -25,6 +23,9 @@ from clippie.model import (
     ResidualAttentionBlockWeights,
     LayerNormalisationWeights,
 )
+
+from clippie.serialiser import dump
+
 
 TORCH_LAYER_NORM_EPS_DEFAULT = 1e-05
 """
@@ -144,7 +145,7 @@ def main():
         args.input.seek(0)
         model = torch.load(args.input, map_location="cpu")
 
-    pickle.dump(extract_weights(model), args.output)
+    dump(extract_weights(model), args.output)
 
 
 if __name__ == "__main__":
