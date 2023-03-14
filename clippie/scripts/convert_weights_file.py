@@ -12,9 +12,18 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-import torch
-import torch.jit
-import torch.nn
+try:
+    import torch
+    import torch.jit
+    import torch.nn
+except ImportError:
+    print(
+        "ERROR: PyTorch is needed to convert CLIP weights files.\n"
+        "Install using `pip install clippie[convert]` to install extra\n"
+        "dependencies for this script."
+    )
+    import sys
+    sys.exit(2)
 
 from clippie.model import (
     Weights,
