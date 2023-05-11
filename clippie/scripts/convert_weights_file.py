@@ -23,6 +23,7 @@ except ImportError:
         "dependencies for this script."
     )
     import sys
+
     sys.exit(2)
 
 from clippie.model import (
@@ -33,7 +34,7 @@ from clippie.model import (
     LayerNormalisationWeights,
 )
 
-from clippie.serialiser import dump
+from weightie import dump
 
 
 TORCH_LAYER_NORM_EPS_DEFAULT = 1e-05

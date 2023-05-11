@@ -9,21 +9,16 @@ image and text encoding deep neural network.
 Usage
 -----
 
-Once you've [obtained a set of weights in Clippie's native
-format](#generating-a-weights-file), you can use it like so:
+Get started like so:
 
-    >>> from clippie import load, encode_text, encode_image
-    
-    >>> # Load the model weights (actually memory maps them)
-    >>> with open("path/to/ViT-B-32.weights", "rb") as f:
-    ...     weights = load(f)
+    >>> from clippie import encode_text, encode_image
     
     >>> # Encode some text
     >>> text_vectors = encode_text([
     ...     "a toddler looking inside a computer",
     ...     "people walking along a mountain ridge",
     ...     "a beautiful lake",
-    ... ], weights.text_encoder)
+    ... ])
     >>> text_vectors.shape  # (input_index, vector_dimension)
     (3, 512)
     
@@ -33,7 +28,7 @@ format](#generating-a-weights-file), you can use it like so:
     ...     Image.open("toddler.jpg"),
     ...     Image.open("mountain.jpg"),
     ...     Image.open("lake.jpg"),
-    ... ], weights.image_encoder)
+    ... ])
     >>> image_vectors.shape  # (input_index, vector_dimension)
     (3, 512)
     
@@ -54,22 +49,43 @@ format](#generating-a-weights-file), you can use it like so:
 Generating a Weights File
 -------------------------
 
-The `clippie-convert-weights-file` script can be used to convert a [PyTorch
-weights
+By default, Clippie will automatically download and use a copy of the CLIP
+ViT-B-32 weights (preconverted into Clippie's format) from the corresponding
+[GitHub release](https://github.com/mossblaser/clippie/releases/). (See
+[weightie](https://github.com/mossblaser/weightie) for the weight storage
+format and auto-download mechanism.).
+
+You can also use the `clippie-convert-weights-file` script can be used to
+convert a [PyTorch weights
 file](https://github.com/openai/CLIP/blob/c5478aac7b9e007a2659d36b57ebe148849e542a/clip/clip.py#L36-L39)
-from the reference CLIP implementation into the [Clippie native weights
-format](./clippie/serialiser.py):
+from the reference CLIP implementation into the native weights
+format:
 
     $ pip install path/to/clippie[convert]  # Extra packages needed for weights file conversion
-    $ clippie-convert-weights-file ~/.cache/clip/ViT-B-32.pt ViT-B-32.weights
+    $ clippie-convert-weights-file /path/to/ViT-B-32.pt ViT-B-32.weights
 
 The conversion script requires extra packages to be installed in order to
 unpack the PyTorch weights file format (including PyTorch). After conversion,
 these dependencies are no longer required.
 
+You can then provide the path to the converted weights file (as a
+[Path](https://docs.python.org/3/library/pathlib.html) object) to
+`clippie.load` to load the needed weights and pass them to the encoder
+functions:
+
+    >>> from pathlib import Path
+    >>> from clippie import load, encode_text, encode_image
+    
+    >>> # Load the weights...
+    >>> weights = load(Path("/path/to/converted.weights"))
+    
+    >>> # Use them...
+    >>> text_vectors = encode_text([...], weights.text_encoder)
+    >>> image_vectors = encode_image([...], weights.image_encoder)
+
 The converted weights file will typically be larger than the source CLIP
 weights file because all values are expanded to float32 so that they can be
-directly memory mapped by Clippie (which is float32-only since most CPUs only
+directly memory mapped by Clippie. Clippie is float32-only since most CPUs only
 natively support down to float32 (and not float16).
 
 
@@ -142,23 +158,6 @@ float32 arithmetic. This inflates memory usage somewhat but is faster on most
 systems in practice.
 
 
-**Where can I download a Clippie-formatted weights file?**
-
-Sorry, I don't have somewhere I can casually throw up multi-hundred megabyte
-files so you'll have to [convert the published CLIP
-weights](#generating-a-weights-file) for yourself.
-
-
-**Why another format to store model weights?**
-
-Clippie uses its own custom on-disk format to store model weights. This format
-supports using the weights directly memory mapped from disk. As a result,
-whilst Clippie is idle, memory used by weights can be swapped out by the
-operating system, preventing it from hogging memory when not needed. This is
-handy for my intended application of a long-running (and mostly idle) personal
-photo management program.
-
-
 **Why ViT-only?**
 
 The CLIP authors reported that their [Vision Transformer
@@ -209,7 +208,4 @@ implementation:
   is also included in Clippie (albeit in a [different
   format](./clippie/scripts/convert_vocab_file.py)).
 * The model weights provided with the reference CLIP implementation are also used
-  (again, after [format conversion](#generating-a-weights-file)). These are
-  *not* redistributed as part of Clippie. Large file hosting issues aside, it
-  the licensing situation is
-  [unclear](https://github.com/openai/CLIP/issues/203).
+  (again, after [format conversion](#generating-a-weights-file)).

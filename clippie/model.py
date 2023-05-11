@@ -2,7 +2,11 @@
 A numpy based implementation of the OpenAI CLIP model's forward pass.
 """
 
-from typing import NamedTuple
+from typing import NamedTuple, Callable
+
+from functools import lru_cache
+
+from pathlib import Path
 
 from numpy.typing import NDArray
 
@@ -10,7 +14,9 @@ import numpy as np
 
 from PIL import Image
 
-from clippie import tokeniser
+import weightie
+
+from clippie import tokeniser, __version__
 
 from clippie.image import centre_crop_and_resize, image_to_scaled_array
 
@@ -133,6 +139,71 @@ class Weights(NamedTuple):
     image_encoder: ImageEncoderWeights
 
 
+# NB: This cache means that when load is called repeatedly and automatically by
+# an encode function below it will not actually require us to re-load the
+# weights file.
+#
+# NB: since the returned data is mmaped anyway we don't need to worry too much
+# about keeping the weights loaded beyond their useful lifetime as the OS can
+# swap them out if they're getting in the way anyway.
+@lru_cache(maxsize=1)
+def load(
+    source: Path | str = "ViT-B-32.weights",
+    search_paths: list[Path] | None = None,
+    update: bool = False,
+    progress_callback: Callable[[list[str], str, int, int | None], None]
+    | None = weightie.downloader.print_status,
+    min_callback_interval: float = 0.5,
+) -> Weights:
+    """
+    Load a set of weights from a file (if a Path is given) or automatically
+    download a named weights file from the GitHub release (if a string is
+    given).
+
+    Parameters
+    ==========
+    source : local weights file (Path) or GitHub asset filename (str)
+        The weights to be downloaded.
+    search_paths : [Path, ...] or None
+        When the source is a GitHub asset filename, a list of locations to
+        search for weights locally before resorting to downloading the file. If
+        None is given, will search platform-specific data directories.
+
+        When downloading weights, the first item on the search path (by default
+        the user application data directory) will be used to store the
+        downloaded weights.
+    update : bool
+        If True, force a check for new weights to download.
+    progress_callback : f(list_of_files, file, bytes_downloaded, bytes_total) or None
+        During file downloads this will be called every min_callback_interval
+        seconds with the status of the download. By default this will print
+        status to stderr. Disable by passing None.
+    min_callback_interval : float
+        See progress_callback.
+
+    Returns
+    =======
+    Weights
+        The model weights.
+
+        Loaded weights are memory mmapped meaning that the data will not
+        actually be read from disk until it is used and may be freely swapped
+        out of RAM by the OS when needed if they're not being used.
+    """
+    if isinstance(source, str):
+        source = weightie.download(
+            repository="mossblaser/clippie",
+            asset_filenames=[source],
+            target_version=__version__,
+            search_paths=search_paths,
+            update=update,
+            progress_callback=progress_callback,
+            min_callback_interval=min_callback_interval,
+        )[source]
+
+    return weightie.load(source.open("rb"))
+
+
 class TooManyTokensError(ValueError):
     """
     Thrown when a text string encodes to too many tokens for the current model
@@ -192,14 +263,22 @@ def transformer(
     return x
 
 
-def encode_text(texts: str | list[str], weights: TextEncoderWeights) -> NDArray:
+def encode_text(
+    texts: str | list[str], weights: TextEncoderWeights | None = None
+) -> NDArray:
     """
     Encode text into the CLIP shared image/text embedding space.
 
     If a list of strings is given, a (len(texts), dim) array is returned giving the
     encoding of each string in turn. Otherwise a single-dimensional vector is
     returned.
+
+    If weights are not given, a set of weights will automatically be
+    downloaded using the :py:func:`load` function.
     """
+    if weights is None:
+        weights = load().text_encoder
+
     batched = True
     if isinstance(texts, str):
         batched = False
@@ -250,11 +329,17 @@ def encode_text(texts: str | list[str], weights: TextEncoderWeights) -> NDArray:
         return out[0]
 
 
-def get_input_image_dimensions(weights: ImageEncoderWeights) -> int:
+def get_input_image_dimensions(weights: ImageEncoderWeights | None = None) -> int:
     """
     Returns the required dimensions for (square) input images, in pixels, to
     the image encoder.
+
+    If weights are not given, a set of weights will automatically be
+    downloaded using the :py:func:`load` function.
     """
+    if weights is None:
+        weights = load().image_encoder
+
     num_patches_plus_one, _ = weights.positional_encoding.shape
     num_patches = num_patches_plus_one - 1
 
@@ -273,7 +358,8 @@ def get_input_image_dimensions(weights: ImageEncoderWeights) -> int:
 
 
 def encode_image(
-    images: Image.Image | list[Image.Image], weights: ImageEncoderWeights
+    images: Image.Image | list[Image.Image],
+    weights: ImageEncoderWeights | None = None,
 ) -> NDArray | list[NDArray]:
     """
     Encode an image into the CLIP shared image/text embedding space.
@@ -281,7 +367,13 @@ def encode_image(
     If a list of images is given, a (len(images), dim) array is returned giving the
     encoding of each string in turn. Otherwise a single-dimensional vector is
     returned.
+
+    If weights are not given, a set of weights will automatically be
+    downloaded using the :py:func:`load` function.
     """
+    if weights is None:
+        weights = load().image_encoder
+
     batched = True
     if isinstance(images, Image.Image):
         batched = False

@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clippie"
-version = "0.0.1"
 license = {file= "LICENSE"}
 dependencies = [
     "numpy",
     "regex",
     "pillow",
+    "weightie >= 0.0.1, < 1.0.0",
 ]
+dynamic = ["version"]
 
 [project.optional-dependencies]
 convert = [
@@ -24,6 +25,9 @@ clippie-convert-weights-file = "clippie.scripts.convert_weights_file:main"
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "clippie.__version__"}
 
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin"
