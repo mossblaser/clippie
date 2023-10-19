@@ -34,7 +34,7 @@ Get started like so:
     
     >>> # Compute cosine similarity
     >>> import numpy as np
-    >>> text_vectors /= np.linalg.norm(image_vectors, axis=1, keepdims=True)
+    >>> text_vectors /= np.linalg.norm(text_vectors, axis=1, keepdims=True)
     >>> image_vectors /= np.linalg.norm(image_vectors, axis=1, keepdims=True)
     >>> similarity = text_vectors @ image_vectors.T
     
