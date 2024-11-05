@@ -3,7 +3,9 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "clippie"
+name = "mossblaser-clippie"
+description = "A Numpy implementation of OpenAI's CLIP image and text encoding deep neural network"
+readme = "README.md"
 license = {file= "LICENSE"}
 dependencies = [
     "numpy",
@@ -12,6 +14,9 @@ dependencies = [
     "weightie >= 0.0.1, < 1.0.0",
 ]
 dynamic = ["version"]
+
+[project.urls]
+source = "https://github.com/mossblaser/clippie"
 
 [project.optional-dependencies]
 convert = [
