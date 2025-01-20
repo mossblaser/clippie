@@ -9,6 +9,10 @@ image and text encoding deep neural network.
 Usage
 -----
 
+Installation:
+
+    $ pip install mossblaser-clippie
+
 Get started like so:
 
     >>> from clippie import encode_text, encode_image
