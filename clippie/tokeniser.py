@@ -18,6 +18,7 @@ import pickle
 
 import regex
 
+import importlib
 
 # Read the vocab and byte-pair encoding merge lists.
 #
@@ -30,8 +31,8 @@ import regex
 #
 # BPE_MERGE_LIST is a list of byte pairs in the order in which they should
 # be merged during byte pair encoding.
-with gzip.open(Path(__file__).parent / "data" / "vocab.pickle.gz", "rb") as f:
-    VOCAB, BPE_MERGE_LIST = pickle.load(f)
+with importlib.resources.open_binary("clippie", "data", "vocab.pickle.gz") as f:
+    VOCAB, BPE_MERGE_LIST = pickle.load(gzip.GzipFile(fileobj=f))
 
 # Mappings between tokens and their corresponding values
 VALUE_TO_TOKEN: dict[bytes, int] = {value: token for token, value in enumerate(VOCAB)}
