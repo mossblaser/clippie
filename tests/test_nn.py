@@ -104,7 +104,7 @@ def test_sigmoid() -> None:
 
 @pytest.mark.parametrize("batch_dims", [(), (2,)])
 def test_multi_head_attention(batch_dims: tuple[int]) -> None:
-    np.random.seed(0)
+    np.random.seed(1)
 
     time = 9
     dim = 21
