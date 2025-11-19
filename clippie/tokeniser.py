@@ -31,7 +31,7 @@ import importlib
 #
 # BPE_MERGE_LIST is a list of byte pairs in the order in which they should
 # be merged during byte pair encoding.
-with importlib.resources.open_binary("clippie", "data", "vocab.pickle.gz") as f:
+with importlib.resources.files("clippie").joinpath("data").joinpath("vocab.pickle.gz").open("rb") as f:
     VOCAB, BPE_MERGE_LIST = pickle.load(gzip.GzipFile(fileobj=f))
 
 # Mappings between tokens and their corresponding values
